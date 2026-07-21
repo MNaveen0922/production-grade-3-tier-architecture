@@ -231,13 +231,7 @@ jobs:
           git push
 
 
-      - name: Trigger immediate Argo CD sync (optional)
-        if: ${{ secrets.ARGOCD_SERVER != '' && secrets.ARGOCD_AUTH_TOKEN != '' }}
-        continue-on-error: true
-        run: |
-          curl -sk -X POST \
-            -H "Authorization: Bearer ${{ secrets.ARGOCD_AUTH_TOKEN }}" \
-            "https://${{ secrets.ARGOCD_SERVER }}/api/v1/applications/enterprise-support/sync"
+
 
 
   smoke-test:
