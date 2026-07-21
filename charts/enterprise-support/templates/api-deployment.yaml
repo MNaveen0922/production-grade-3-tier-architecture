@@ -1,0 +1,108 @@
+{{- range .Values.apiServices }}
+{{- $svc := . }}
+{{- $root := $ }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc.name }}-deployment
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app: {{ $svc.name }}-service
+    {{- include "enterprise-support.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $svc.name }}-service
+  template:
+    metadata:
+      labels:
+        app: {{ $svc.name }}-service
+    spec:
+      serviceAccountName: {{ $root.Values.serviceAccount.name }}
+      containers:
+        - name: {{ $svc.name }}-service
+          image: {{ include "enterprise-support.image" (dict "root" $root "svc" $svc) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ $root.Values.projectName }}-config
+          livenessProbe:
+            httpGet:
+              path: {{ $svc.healthPath }}
+              port: {{ $svc.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: {{ $svc.healthPath }}
+              port: {{ $svc.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc.name }}-service
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app: {{ $svc.name }}-service
+    {{- include "enterprise-support.labels" $root | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $svc.name }}-service
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+{{- if $svc.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $svc.name }}-hpa
+  namespace: {{ $root.Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $svc.name }}-deployment
+  minReplicas: {{ $svc.autoscaling.minReplicas }}
+  maxReplicas: {{ $svc.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if and $root.Values.metrics.enabled $root.Values.metrics.serviceMonitor.enabled }}
+---
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $svc.name }}-servicemonitor
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    {{- include "enterprise-support.labels" $root | nindent 4 }}
+    {{- toYaml $root.Values.metrics.serviceMonitor.additionalLabels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $svc.name }}-service
+  endpoints:
+    - port: http
+      path: {{ $root.Values.metrics.path }}
+      interval: {{ $root.Values.metrics.serviceMonitor.interval }}
+  namespaceSelector:
+    matchNames:
+      - {{ $root.Values.namespace }}
+{{- end }}
+{{- end }}

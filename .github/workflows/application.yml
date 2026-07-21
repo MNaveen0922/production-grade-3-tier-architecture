@@ -1,0 +1,308 @@
+name: CI/CD — Build, Test & Release
+
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "tests/**"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "tests/**"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write  
+
+env:
+  AWS_REGION:    ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY:  ${{ secrets.ECR_REGISTRY }}
+  EKS_CLUSTER:   ${{ secrets.EKS_CLUSTER }}
+  K8S_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
+  SNS_TOPIC_ARN: ${{ secrets.SNS_TOPIC_ARN }}
+
+jobs:
+
+  unit-test:
+    name: Unit Tests — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth, ticket, assignment]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install service + test dependencies
+        working-directory: app/${{ matrix.service }}
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        working-directory: app/${{ matrix.service }}
+        run: pytest tests/ -v --junitxml=../../unit-${{ matrix.service }}.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results-${{ matrix.service }}
+          path: unit-${{ matrix.service }}.xml
+
+
+  integration-test:
+    name: Integration Tests (real MySQL)
+    runs-on: ubuntu-latest
+    needs: unit-test
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: supportdesk
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install MySQL client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Load schema.sql into the test database
+        run: |
+          for i in $(seq 1 10); do
+            mysql -h 127.0.0.1 -uroot -proot -e "SELECT 1" && break
+            echo "Waiting for MySQL..."; sleep 5
+          done
+          mysql -h 127.0.0.1 -uroot -proot < app/database/schema.sql
+
+      - name: Install all service dependencies (each service runs as a real subprocess)
+        run: |
+          pip install -r app/auth/requirements.txt
+          pip install -r app/ticket/requirements.txt
+          pip install -r app/assignment/requirements.txt
+          pip install -r tests/integration/requirements.txt
+
+      - name: Run integration tests
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: supportdesk
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: root
+        run: pytest tests/integration/ -v --junitxml=integration-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: integration-results.xml
+
+
+  build-push:
+    name: Build & Push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [unit-test, integration-test]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service:   auth
+            context:   ./app/auth
+            image:     enterprise-support-auth
+          - service:   ticket
+            context:   ./app/ticket
+            image:     enterprise-support-ticket
+          - service:   assignment
+            context:   ./app/assignment
+            image:     enterprise-support-assignment
+          - service:   frontend
+            context:   ./app/frontend
+            image:     enterprise-support-frontend
+          - service:   worker
+            context:   ./app/worker
+            image:     enterprise-support-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/${{ matrix.image }}:latest
+            ${{ secrets.ECR_REGISTRY }}/${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.ECR_REGISTRY }}/${{ matrix.image }}:cache
+          cache-to:   type=registry,ref=${{ secrets.ECR_REGISTRY }}/${{ matrix.image }}:cache,mode=max
+
+
+      - name: Trivy vulnerability scan — ${{ matrix.service }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:      ${{ secrets.ECR_REGISTRY }}/${{ matrix.image }}:${{ github.sha }}
+          format:         table
+          exit-code:      "0"
+          ignore-unfixed: true
+          severity:       CRITICAL,HIGH
+
+
+  update-gitops-manifest:
+    name: Update Helm values (GitOps handoff to Argo CD)
+    runs-on: ubuntu-latest
+    needs: build-push
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump image tags in charts/enterprise-support/values.yaml
+        run: |
+          TAG="${{ github.sha }}"
+          yq -i '(.apiServices[] | select(.name == "auth")   | .tag) = strenv(TAG)' charts/enterprise-support/values.yaml
+          yq -i '(.apiServices[] | select(.name == "ticket")  | .tag) = strenv(TAG)' charts/enterprise-support/values.yaml
+          yq -i '(.apiServices[] | select(.name == "assign")  | .tag) = strenv(TAG)' charts/enterprise-support/values.yaml
+          yq -i '.frontend.tag = strenv(TAG)' charts/enterprise-support/values.yaml
+          yq -i '.worker.tag   = strenv(TAG)' charts/enterprise-support/values.yaml
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/enterprise-support/values.yaml
+          # [skip ci] is a second safety net alongside the path filters
+          # above — belt and suspenders against ever re-triggering this
+          # workflow from its own commit.
+          git commit -m "ci: bump image tags to ${{ github.sha }} [skip ci]" || echo "Nothing to commit"
+          git push
+
+
+      - name: Trigger immediate Argo CD sync (optional)
+        if: ${{ secrets.ARGOCD_SERVER != '' && secrets.ARGOCD_AUTH_TOKEN != '' }}
+        continue-on-error: true
+        run: |
+          curl -sk -X POST \
+            -H "Authorization: Bearer ${{ secrets.ARGOCD_AUTH_TOKEN }}" \
+            "https://${{ secrets.ARGOCD_SERVER }}/api/v1/applications/enterprise-support/sync"
+
+
+  smoke-test:
+    name: Post-Deploy Smoke Test
+    runs-on: ubuntu-latest
+    needs: update-gitops-manifest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER }}
+
+      - name: Wait for Argo CD to sync and rollouts to finish
+        run: |
+          for dep in auth-deployment ticket-deployment assign-deployment frontend-deployment worker-deployment; do
+            echo "Waiting for $dep..."
+            kubectl rollout status deployment/$dep \
+              -n ${{ secrets.K8S_NAMESPACE }} --timeout=300s
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install smoke test dependencies
+        run: pip install requests
+
+      - name: Run smoke tests against live ALB
+        run: |
+          ALB_DNS=$(kubectl get ingress enterprise-support-ingress \
+            -n ${{ secrets.K8S_NAMESPACE }} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "ALB DNS: $ALB_DNS"
+          python tests/smoke/smoke_test.py "http://$ALB_DNS"
+
+      - name: Notify SNS — success
+        if: success()
+        continue-on-error: true
+        run: |
+          aws sns publish \
+            --topic-arn "${{ secrets.SNS_TOPIC_ARN }}" \
+            --subject "✅ Deployment Successful — Support Desk" \
+            --message "Commit: ${{ github.sha }} by ${{ github.actor }}" \
+            --region ${{ secrets.AWS_REGION }}
+
+      - name: Notify SNS — failed
+        if: failure()
+        continue-on-error: true
+        run: |
+          aws sns publish \
+            --topic-arn "${{ secrets.SNS_TOPIC_ARN }}" \
+            --subject "❌ Deployment FAILED — Support Desk" \
+            --message "Commit: ${{ github.sha }} — Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --region ${{ secrets.AWS_REGION }}

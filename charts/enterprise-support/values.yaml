@@ -1,0 +1,114 @@
+
+
+projectName: enterprise-support
+namespace: enterprise-support
+
+serviceAccount:
+  create: true
+  name: enterprise-support-sa
+
+  roleArn: "arn:aws:iam::124990256338:role/enterprise-support-prod-app-pod-role"
+
+image:
+
+  registry: "124990256338.dkr.ecr.us-east-1.amazonaws.com"
+  pullPolicy: IfNotPresent
+
+config:
+
+  ssmPath: "/enterprise-support/prod/config"
+  awsRegion: "us-east-1"
+
+
+apiServices:
+  - name: auth
+    image: enterprise-support-auth
+    tag: latest
+    port: 8001
+    path: /auth
+    healthPath: /auth/health
+    replicas: 1
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+
+  - name: ticket
+    image: enterprise-support-ticket
+    tag: latest
+    port: 8002
+    path: /tickets
+    healthPath: /tickets/health
+    replicas: 1
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+
+  - name: assign
+    image: enterprise-support-assignment
+    tag: latest
+    port: 8003
+    path: /assign
+    healthPath: /assign/health
+    replicas: 1
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+
+frontend:
+  name: frontend
+  image: enterprise-support-frontend
+  tag: latest
+  port: 80
+  healthPath: /health
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+  autoscaling:
+    enabled: false
+
+worker:
+  name: worker
+  image: enterprise-support-worker
+  tag: latest
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+
+ingress:
+  enabled: true
+
+  albSecurityGroupId: "sg-0c9ebf510cea31192"
+
+
+metrics:
+  enabled: true
+  path: /metrics
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+
+    additionalLabels:
+      release: kube-prometheus-stack
+
+cloudwatchAgent:
+  enabled: true
+
+  roleArn: "arn:aws:iam::124990256338:role/enterprise-support-prod-cloudwatch-agent-role"
+  clusterName: "enterprise-support-prod-eks"

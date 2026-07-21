@@ -1,0 +1,47 @@
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enterprise-support
+  namespace: argocd
+
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: enterprise-support
+
+  source:
+    repoURL: "https://github.com/MNaveen0922/production-grade-3-tier-architecture.git"
+    targetRevision: main
+    path: charts/enterprise-support
+    helm:
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enterprise-support
+
+  syncPolicy:
+    automated:
+
+      selfHeal: true
+
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

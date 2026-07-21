@@ -1,0 +1,801 @@
+---
+# Source: enterprise-support/templates/base.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: enterprise-support
+  labels:
+    app: enterprise-support
+    environment: prod
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amazon-cloudwatch
+  labels:
+    name: amazon-cloudwatch
+---
+# Source: enterprise-support/templates/base.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: enterprise-support-sa
+  namespace: enterprise-support
+  annotations:
+
+    eks.amazonaws.com/role-arn: "arn:aws:iam::124990256338:role/enterprise-support-prod-app-pod-role"
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudwatch-agent
+  namespace: amazon-cloudwatch
+  annotations:
+    
+    eks.amazonaws.com/role-arn: "arn:aws:iam::124990256338:role/enterprise-support-prod-cloudwatch-agent-role"
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: amazon-cloudwatch
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::124990256338:role/enterprise-support-prod-cloudwatch-agent-role"
+---
+# Source: enterprise-support/templates/base.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enterprise-support-config
+  namespace: enterprise-support
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+data:
+  AWS_SSM_PATH: "/enterprise-support/prod/config"
+  AWS_REGION: "us-east-1"
+
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cwagentconfig
+  namespace: amazon-cloudwatch
+data:
+  cwagentconfig.json: |
+    {
+      "agent": {
+        "region": "us-east-1"
+      },
+      "logs": {
+        "metrics_collected": {
+          "kubernetes": {
+            "cluster_name": "enterprise-support-prod-eks",
+            "metrics_collection_interval": 60
+          }
+        },
+        "force_flush_interval": 5
+      }
+    }
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: amazon-cloudwatch
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Log_Level     info
+        Daemon        off
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    [INPUT]
+        Name              tail
+        Tag               kube.*
+        Path              /var/log/containers/*.log
+        Parser            docker
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Merge_Log           On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude Off
+
+    # App service logs → /enterprise-support/prod/auth|ticket|assignment|frontend
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               kube.*enterprise-support*
+        region              us-east-1
+        log_group_name      /enterprise-support/prod/application
+        log_stream_prefix   pod/
+        auto_create_group   false
+
+    # Worker logs → separate stream
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               kube.*worker*
+        region              us-east-1
+        log_group_name      /enterprise-support/prod/worker
+        log_stream_prefix   worker/
+        auto_create_group   false
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-role
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-role
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: amazon-cloudwatch
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: enterprise-support
+  labels:
+    app: auth-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  type: ClusterIP
+  selector:
+    app: auth-service
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-service
+  namespace: enterprise-support
+  labels:
+    app: ticket-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  type: ClusterIP
+  selector:
+    app: ticket-service
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: assign-service
+  namespace: enterprise-support
+  labels:
+    app: assign-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  type: ClusterIP
+  selector:
+    app: assign-service
+  ports:
+    - name: http
+      port: 8003
+      targetPort: 8003
+---
+# Source: enterprise-support/templates/frontend-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: enterprise-support
+  labels:
+    app: frontend
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cloudwatch-agent
+  namespace: amazon-cloudwatch
+spec:
+  selector:
+    matchLabels:
+      name: cloudwatch-agent
+  template:
+    metadata:
+      labels:
+        name: cloudwatch-agent
+    spec:
+      serviceAccountName: cloudwatch-agent
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: cloudwatch-agent
+          image: amazon/cloudwatch-agent:1.300040.0b650
+          resources:
+            limits:
+              cpu: "200m"
+              memory: "200Mi"
+            requests:
+              cpu: "200m"
+              memory: "200Mi"
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: HOST_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: cwagentconfig
+              mountPath: /etc/cwagentconfig
+            - name: rootfs
+              mountPath: /rootfs
+              readOnly: true
+            - name: containerdsock
+              mountPath: /run/containerd/containerd.sock
+              readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
+            - name: devdisk
+              mountPath: /dev/disk
+              readOnly: true
+      volumes:
+        - name: cwagentconfig
+          configMap:
+            name: cwagentconfig
+        - name: rootfs
+          hostPath:
+            path: /
+        - name: containerdsock
+          hostPath:
+            path: /run/containerd/containerd.sock
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: devdisk
+          hostPath:
+            path: /dev/disk
+---
+# Source: enterprise-support/templates/cloudwatch-daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: amazon-cloudwatch
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      name: fluent-bit
+  template:
+    metadata:
+      labels:
+        name: fluent-bit
+    spec:
+      serviceAccountName: fluent-bit
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+      containers:
+        - name: fluent-bit
+          image: amazon/aws-for-fluent-bit:2.32.0
+          resources:
+            limits:
+              memory: "200Mi"
+            requests:
+              cpu: "100m"
+              memory: "100Mi"
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: CLUSTER_NAME
+              value: "enterprise-support-prod-eks"
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: fluent-bit-config
+              mountPath: /fluent-bit/etc/
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: fluent-bit-config
+          configMap:
+            name: fluent-bit-config
+
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-deployment
+  namespace: enterprise-support
+  labels:
+    app: auth-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      serviceAccountName: enterprise-support-sa
+      containers:
+        - name: auth-service
+          image: 124990256338.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-auth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: enterprise-support-config
+          livenessProbe:
+            httpGet:
+              path: /auth/health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /auth/health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: auth-servicemonitor
+  namespace: enterprise-support
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: auth-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - enterprise-support
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-deployment
+  namespace: enterprise-support
+  labels:
+    app: ticket-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ticket-service
+  template:
+    metadata:
+      labels:
+        app: ticket-service
+    spec:
+      serviceAccountName: enterprise-support-sa
+      containers:
+        - name: ticket-service
+          image: 124990256338.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-ticket:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8002
+          envFrom:
+            - configMapRef:
+                name: enterprise-support-config
+          livenessProbe:
+            httpGet:
+              path: /tickets/health
+              port: 8002
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /tickets/health
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ticket-servicemonitor
+  namespace: enterprise-support
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: ticket-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - enterprise-support
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assign-deployment
+  namespace: enterprise-support
+  labels:
+    app: assign-service
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: assign-service
+  template:
+    metadata:
+      labels:
+        app: assign-service
+    spec:
+      serviceAccountName: enterprise-support-sa
+      containers:
+        - name: assign-service
+          image: 124990256338.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-assignment:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8003
+          envFrom:
+            - configMapRef:
+                name: enterprise-support-config
+          livenessProbe:
+            httpGet:
+              path: /assign/health
+              port: 8003
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /assign/health
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: enterprise-support/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: enterprise-support
+  labels:
+    app: frontend
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      serviceAccountName: enterprise-support-sa
+      containers:
+        - name: frontend
+          image: 124990256338.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 250m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: enterprise-support/templates/worker-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-deployment
+  namespace: enterprise-support
+  labels:
+    app: worker
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      serviceAccountName: enterprise-support-sa
+      containers:
+        - name: worker
+          image: 124990256338.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-worker:latest
+          imagePullPolicy: IfNotPresent
+          
+          envFrom:
+            - configMapRef:
+                name: enterprise-support-config
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import boto3"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-hpa
+  namespace: enterprise-support
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-deployment
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ticket-hpa
+  namespace: enterprise-support
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ticket-deployment
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: assign-hpa
+  namespace: enterprise-support
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: assign-deployment
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Source: enterprise-support/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: enterprise-support-ingress
+  namespace: enterprise-support
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/security-groups: "sg-0c9ebf510cea31192"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8001
+          - path: /tickets
+            pathType: Prefix
+            backend:
+              service:
+                name: ticket-service
+                port:
+                  number: 8002
+          - path: /assign
+            pathType: Prefix
+            backend:
+              service:
+                name: assign-service
+                port:
+                  number: 8003
+          
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
+
+---
+# Source: enterprise-support/templates/api-deployment.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: assign-servicemonitor
+  namespace: enterprise-support
+  labels:
+    app.kubernetes.io/part-of: enterprise-support
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: enterprise-support-1.0.0
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: assign-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+  namespaceSelector:
+    matchNames:
+      - enterprise-support

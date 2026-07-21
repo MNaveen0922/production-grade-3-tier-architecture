@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enterprise-support-grafana-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  enterprise-support.json: |
+    {
+      "title": "Support Desk — Service Overview",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request rate by service (req/s)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"enterprise-support\"}[5m])) by (handler, job)",
+              "legendFormat": "{{job}} {{handler}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "P95 latency by service (s)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"enterprise-support\"}[5m])) by (le, job))",
+              "legendFormat": "{{job}} p95"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Error rate (5xx) by service",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{namespace=\"enterprise-support\", status=~\"5..\"}[5m])) by (job)",
+              "legendFormat": "{{job}} 5xx/s"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Pod CPU usage (enterprise-support namespace)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"enterprise-support\"}[5m])) by (pod)",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Pod memory usage (enterprise-support namespace)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"enterprise-support\"}) by (pod)",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Pod restarts (enterprise-support namespace)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"enterprise-support\"}[1h])) by (pod)",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        }
+      ]
+    }

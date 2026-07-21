@@ -1,0 +1,15 @@
+apiVersion: v2
+name: enterprise-support
+description: >
+  Support Desk — IT ticketing platform. Deploys auth, ticket, assignment,
+  worker, and frontend, plus Prometheus ServiceMonitors for each API
+  service. Replaces the raw k8s/*.yaml manifests used in earlier versions
+  of this project — same resources, now templated and parameterized via
+  values.yaml so environments/tags/replicas never need hand-editing YAML.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - fastapi
+  - eks
+  - enterprise-support
