@@ -1,4 +1,4 @@
-# modules/cloudwatch/outputs.tf
+
 
 output "app_log_group_names" {
   description = "Map of service name to its CloudWatch log group name"

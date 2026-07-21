@@ -1,4 +1,4 @@
-# each service (e.g. "123456789012.dkr.ecr.us-east-1.amazonaws.com/enterprise-support-auth").
+
 output "repository_urls" {
   description = "Map of service name to ECR repository URL"
   value = {

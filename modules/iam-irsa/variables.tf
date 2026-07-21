@@ -1,4 +1,4 @@
-# modules/iam-irsa/variables.tf
+
 
 variable "project_name" {
   type = string
@@ -8,7 +8,7 @@ variable "environment" {
   type = string
 }
 
-# --- handed off from modules/eks/ - same OIDC mechanism as alb-controller ---
+
 variable "oidc_provider_arn" {
   type = string
 }
@@ -18,7 +18,7 @@ variable "oidc_provider_url" {
   type        = string
 }
 
-# --- app pod service account identity ---
+
 variable "app_namespace" {
   description = "Kubernetes namespace the app service accounts live in"
   type        = string
@@ -31,7 +31,7 @@ variable "app_service_account_name" {
   default     = "enterprise-support-sa"
 }
 
-# --- cloudwatch agent service account identity ---
+
 variable "cloudwatch_agent_namespace" {
   type    = string
   default = "amazon-cloudwatch"
@@ -42,8 +42,7 @@ variable "cloudwatch_agent_service_account_name" {
   default = "cloudwatch-agent"
 }
 
-# --- resource ARNs to scope app permissions to (least privilege - never
-#     a wildcard across all buckets/queues/secrets in the account) ---
+
 variable "assets_bucket_arn" {
   description = "ARN of the S3 assets bucket - from modules/s3/"
   type        = string

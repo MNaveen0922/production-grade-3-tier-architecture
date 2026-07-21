@@ -1,13 +1,8 @@
-# modules/iam-irsa/main.tf
+
 
 data "aws_caller_identity" "current" {}
 
-# ---------------------------------------------------------------------------
-# 1. APP POD IRSA ROLE - trusts ONLY the app's specific service account,
-#    same pattern as modules/alb-controller/. This is what lets your
-#    auth/book/borrow/frontend/worker pods call AWS APIs (S3, SQS, Secrets
-#    Manager) WITHOUT AWS access keys baked into a Docker image or env var.
-# ---------------------------------------------------------------------------
+
 resource "aws_iam_role" "app_pod" {
   name = "${var.project_name}-${var.environment}-app-pod-role"
 
@@ -33,14 +28,7 @@ resource "aws_iam_role" "app_pod" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# 2. APP PERMISSIONS POLICY - scoped to EXACTLY the resources this app
-#    needs, and nothing else. Each Resource line points at a specific ARN
-#    passed in from another module's outputs - never "*". This is the
-#    least-privilege principle: if this role's credentials ever leaked,
-#    the blast radius is "one S3 bucket, two SQS queues, one secret" -
-#    not the whole AWS account.
-# ---------------------------------------------------------------------------
+
 resource "aws_iam_policy" "app_pod" {
   name = "${var.project_name}-${var.environment}-app-pod-policy"
 
@@ -90,14 +78,14 @@ resource "aws_iam_policy" "app_pod" {
           "ssm:GetParameters",
           "ssm:GetParametersByPath"
         ]
-        # Scoped to this project/environment path only — not all SSM params in the account
+
         Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"
       },
       {
         Sid    = "SNSPublishAccess"
         Effect = "Allow"
         Action = "sns:Publish"
-        # Scoped to only this project's alerts topic
+        
         Resource = "arn:aws:sns:us-east-1:${data.aws_caller_identity.current.account_id}:${var.project_name}-${var.environment}-alerts"
       }
     ]
@@ -109,14 +97,7 @@ resource "aws_iam_role_policy_attachment" "app_pod" {
   policy_arn = aws_iam_policy.app_pod.arn
 }
 
-# ---------------------------------------------------------------------------
-# 3. CLOUDWATCH AGENT IRSA ROLE - separate role, separate trust condition,
-#    for the CloudWatch agent pod (ships container logs/metrics to the
-#    log groups built in modules/cloudwatch/). Kept SEPARATE from the app
-#    pod role on purpose: the agent needs write access to CloudWatch Logs,
-#    the app needs S3/SQS/Secrets access - no reason for either identity
-#    to hold permissions it doesn't use.
-# ---------------------------------------------------------------------------
+
 resource "aws_iam_role" "cloudwatch_agent" {
   name = "${var.project_name}-${var.environment}-cloudwatch-agent-role"
 
@@ -142,9 +123,7 @@ resource "aws_iam_role" "cloudwatch_agent" {
   }
 }
 
-# AWS-managed policy for the CloudWatch agent - standard permissions to
-# write log streams/events and put custom metrics. No need to hand-write
-# this one; it's a well-known AWS-maintained policy for exactly this purpose.
+
 resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
   role       = aws_iam_role.cloudwatch_agent.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"

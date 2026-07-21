@@ -1,5 +1,3 @@
-# modules/rds/variables.tf
-
 variable "project_name" {
   type = string
 }
@@ -8,7 +6,7 @@ variable "environment" {
   type = string
 }
 
-# --- handed off from modules/vpc/ ---
+
 variable "private_subnet_ids" {
   description = "RDS lives here - same private tier as EKS nodes, isolated by security group not subnet"
   type        = list(string)
@@ -19,7 +17,7 @@ variable "rds_security_group_id" {
   type        = string
 }
 
-# --- database config ---
+
 variable "db_name" {
   type    = string
   default = "digitallibrary"

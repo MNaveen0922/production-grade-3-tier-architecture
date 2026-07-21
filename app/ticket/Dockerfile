@@ -1,8 +1,4 @@
-# ============================================================
-# ticket/Dockerfile  —  FastAPI ticket catalogue service
-# Port: 8002  |  Health: GET /tickets/health
-# Server: gunicorn + uvicorn workers (ASGI — correct for FastAPI)
-# ============================================================
+
 
 FROM python:3.11-slim
 

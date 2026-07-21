@@ -1,7 +1,7 @@
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
-  enable_dns_support   = true # lets resources inside resolve AWS DNS names
-  enable_dns_hostnames = true # required for EKS and RDS to work properly
+  enable_dns_support   = true 
+  enable_dns_hostnames = true 
 
   tags = {
     Name = "${var.project_name}-${var.environment}-vpc"
@@ -19,21 +19,21 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   count             = length(var.availability_zones)
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index) # 10.0.0.0/24, 10.0.1.0/24
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index) 
   availability_zone = var.availability_zones[count.index]
 
-  map_public_ip_on_launch = true # needed so the ALB gets a public IP
+  map_public_ip_on_launch = true 
 
   tags = {
     Name                     = "${var.project_name}-${var.environment}-public-${count.index}"
-    "kubernetes.io/role/elb" = "1" # tells AWS LB Controller "a public ALB may live here"
+    "kubernetes.io/role/elb" = "1" 
   }
 }
 
 resource "aws_subnet" "private" {
   count             = length(var.availability_zones)
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 10) # 10.0.10.0/24, 10.0.11.0/24
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 10) 
   availability_zone = var.availability_zones[count.index]
 
   tags = {
@@ -104,11 +104,7 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[count.index].id
 }
 
-# 5. SECURITY GROUPS
-#   Internet -> [ALB SG: port 80 from anywhere]
-#            -> [EKS Node SG: app ports 80/8001/8002/8003, ONLY from ALB SG]
-#            -> [RDS SG: port 3306, ONLY from Node SG]
-# --- SG 1: ALB - public facing ---
+
 resource "aws_security_group" "alb" {
   name_prefix = "${var.project_name}-${var.environment}-alb-"
   description = "Allows inbound web traffic from the internet to the ALB"
@@ -139,15 +135,13 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# --- SG 2: EKS worker nodes - where your pods run ---
+
 resource "aws_security_group" "eks_nodes" {
   name_prefix = "${var.project_name}-${var.environment}-eks-nodes-"
   description = "Allows traffic from the ALB into pods, and node-to-node traffic for the EKS cluster itself"
   vpc_id      = aws_vpc.main.id
 
-  # ALB -> pods, directly on each app's real port. This works because the
-  # AWS Load Balancer Controller runs in "ip" target mode (talks straight
-  # to pod IPs), not the 30000-32767 NodePort range.
+
   dynamic "ingress" {
     for_each = var.alb_target_ports
     content {
@@ -159,9 +153,7 @@ resource "aws_security_group" "eks_nodes" {
     }
   }
 
-  # ALB Controller webhook - the controller runs as a pod and AWS calls
-  # back to it on 443 to validate/mutate Ingress resources. Without this
-  # the ALB controller pod will fail with webhook timeout errors.
+
   ingress {
     description     = "ALB Controller webhook from ALB SG"
     from_port       = 443
@@ -170,7 +162,7 @@ resource "aws_security_group" "eks_nodes" {
     security_groups = [aws_security_group.alb.id]
   }
 
-  # Nodes need to talk to each other (kubelet, DNS, cluster networking).
+
   ingress {
     description = "Node to node communication (required by EKS/kubelet)"
     from_port   = 0
@@ -196,7 +188,7 @@ resource "aws_security_group" "eks_nodes" {
   }
 }
 
-# --- SG 3: RDS
+
 resource "aws_security_group" "rds" {
   name_prefix = "${var.project_name}-${var.environment}-rds-"
   description = "Allows MySQL traffic only from EKS worker nodes - nothing else, not even the ALB"

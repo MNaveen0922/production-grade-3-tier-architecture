@@ -1,10 +1,7 @@
-# 1. DEAD LETTER QUEUE (DLQ) - created FIRST because the main queue's
+
 resource "aws_sqs_queue" "orders_dlq" {
   name = "${var.project_name}-${var.environment}-orders-dlq"
 
-  # DLQ messages get the same retention window - no separate override
-  # needed since the DLQ isn't a place messages should live indefinitely
-  # either; you still want to notice and fix the failures within this window.
   message_retention_seconds = var.message_retention_seconds
 
   tags = {
@@ -12,7 +9,7 @@ resource "aws_sqs_queue" "orders_dlq" {
   }
 }
 
-# 2. MAIN ORDERS QUEUE - app publishes borrow/return events here; worker
+
 resource "aws_sqs_queue" "orders" {
   name = "${var.project_name}-${var.environment}-orders-queue"
 
@@ -29,7 +26,7 @@ resource "aws_sqs_queue" "orders" {
   }
 }
 
-# 3. REDRIVE ALLOW POLICY (on the DLQ) - explicitly declares which queues
+
 resource "aws_sqs_queue_redrive_allow_policy" "orders_dlq" {
   queue_url = aws_sqs_queue.orders_dlq.id
 

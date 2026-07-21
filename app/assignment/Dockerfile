@@ -1,8 +1,4 @@
-# ============================================================
-# assignment/Dockerfile  —  FastAPI ticket-assignment service
-# Port: 8003  |  Health: GET /assign/health
-# Server: gunicorn + uvicorn workers (ASGI — correct for FastAPI)
-# ============================================================
+
 
 FROM python:3.11-slim
 

@@ -12,7 +12,7 @@ variable "cluster_version" {
   default     = "1.31"
 }
 
-# --- Inputs handed off FROM the vpc module (this is module interconnection) ---
+
 variable "vpc_id" {
   type = string
 }
@@ -32,7 +32,7 @@ variable "eks_nodes_security_group_id" {
   type        = string
 }
 
-# --- Inputs handed off FROM the iam module ---
+
 variable "eks_cluster_role_arn" {
   type = string
 }
@@ -41,20 +41,20 @@ variable "eks_node_role_arn" {
   type = string
 }
 
-# --- Node group sizing ---
+
 variable "node_instance_types" {
   type    = list(string)
-  default = ["t3.small"] # t3.medium had no capacity in us-east-1a/1b per README
+  default = ["t3.small"] 
 }
 
 variable "node_desired_size" {
   type    = number
-  default = 2 # updated per user request - 2 nodes for HA across 2 AZs
+  default = 3
 }
 
 variable "node_min_size" {
   type    = number
-  default = 1
+  default = 2
 }
 
 variable "node_max_size" {
