@@ -1,11 +1,10 @@
-
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: enterprise-support
   namespace: argocd
 spec:
-  description: Support Desk platform — ticketing app (auth/ticket/assign/worker/frontend)
+  description: Enterprise Support Platform
 
   sourceRepos:
     - "https://github.com/MNaveen0922/production-grade-3-tier-architecture.git"
@@ -14,10 +13,12 @@ spec:
     - namespace: enterprise-support
       server: https://kubernetes.default.svc
 
+    - namespace: amazon-cloudwatch
+      server: https://kubernetes.default.svc
 
   clusterResourceWhitelist:
-    - group: ""
-      kind: Namespace
+    - group: "*"
+      kind: "*"
 
   namespaceResourceWhitelist:
     - group: "*"
