@@ -11,5 +11,5 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 Full image reference for a service map entry (name/image/tag).
 */}}
 {{- define "enterprise-support.image" -}}
-{{ .root.Values.image.registry }}/{{ .svc.image }}:{{ .svc.tag }}
+{{ .root.Values.image.registry }}/{{ .svc.image }}:{{ .svc.tag | default "latest" }}
 {{- end -}}
