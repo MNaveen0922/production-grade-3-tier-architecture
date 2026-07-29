@@ -47,7 +47,7 @@ variable "rds_cpu_threshold" {
 variable "rds_free_storage_threshold_bytes" {
   description = "Alarm fires when RDS free storage drops below this many bytes (default 5GB)"
   type        = number
-  default     = 5368709120 
+  default     = 5368709120
 }
 
 

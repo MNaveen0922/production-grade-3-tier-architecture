@@ -136,6 +136,22 @@ module "ssm" {
   }
 }
 
+module "sonarqube" {
+  source = "./modules/sonarqube"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  vpc_id           = module.vpc.vpc_id
+  public_subnet_id = module.vpc.public_subnet_ids[0]
+  aws_region       = "us-east-1"
+
+  allowed_cidr_blocks = var.sonarqube_allowed_cidr_blocks
+  instance_type       = var.sonarqube_instance_type
+  enable_elastic_ip   = var.sonarqube_enable_elastic_ip
+  key_name            = var.sonarqube_key_name
+}
+
 module "cloudwatch" {
   source = "./modules/cloudwatch"
 

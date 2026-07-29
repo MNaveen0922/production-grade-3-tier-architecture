@@ -70,3 +70,19 @@ output "cloudwatch_agent_role_arn" {
   description = "IAM Role ARN to annotate on the CloudWatch agent ServiceAccount"
   value       = module.iam_irsa.cloudwatch_agent_role_arn
 }
+
+
+output "sonarqube_url" {
+  description = "Your SONAR_HOST_URL GitHub Actions secret - open this in a browser to confirm it's up"
+  value       = module.sonarqube.sonarqube_url
+}
+
+output "sonarqube_instance_id" {
+  description = "For `aws ssm start-session --target <this>` if you ever need a shell on the box"
+  value       = module.sonarqube.instance_id
+}
+
+output "sonarqube_token_ssm_path" {
+  description = "Fetch your SONAR_TOKEN secret with: aws ssm get-parameter --name <this> --with-decryption --query Parameter.Value --output text --region us-east-1"
+  value       = module.sonarqube.ssm_token_path
+}

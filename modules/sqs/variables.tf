@@ -24,5 +24,5 @@ variable "visibility_timeout_seconds" {
 variable "message_retention_seconds" {
   description = "How long unconsumed messages are kept before permanent deletion"
   type        = number
-  default     = 345600 
+  default     = 345600
 }

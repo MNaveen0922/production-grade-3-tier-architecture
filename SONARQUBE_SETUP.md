@@ -1,32 +1,64 @@
-# SonarQube Integration — Setup Steps
+# SonarQube Integration — Automated EC2 Setup
 
-Files added/changed (already applied in this repo copy):
-- `sonarqube/docker-compose.yml` — spins up a SonarQube Server + Postgres
-- `sonar-project.properties` — scan config (sources, tests, coverage paths)
-- `app/{auth,ticket,assignment}/requirements-dev.txt` — added `pytest-cov`
-- `.github/workflows/application.yml`:
-  - `unit-test` job now generates `coverage-<service>.xml` and uploads it
-  - new `sonarqube` job: runs the scan, then blocks on the Quality Gate
-  - `build-push` now depends on `sonarqube`, so a failed gate stops the
-    build/push/deploy — nothing gets released past a broken gate.
+You don't have Docker locally, so SonarQube runs on a small EC2 instance
+instead. `terraform apply` provisions the box **and** fully configures it —
+no SSH, no manual `docker compose up`, no clicking through the SonarQube UI
+to create a project or token.
 
-## 1. Stand up a SonarQube server (you don't have one yet)
+## What's automated
+
+`modules/sonarqube/` provisions:
+- An EC2 instance (Amazon Linux 2023, `t3.medium` by default)
+- A security group open **only** to `sonarqube_allowed_cidr_blocks` on port
+  9000 — no port 22 open unless you explicitly set `sonarqube_key_name`
+- An IAM role using **SSM Session Manager** for shell access (no SSH key to
+  manage or lose)
+- A static Elastic IP, so the URL never changes across restarts
+
+On first boot, a `user_data` script (see
+`modules/sonarqube/templates/user_data.sh.tpl`) automatically:
+1. Installs Docker + Compose
+2. Starts SonarQube + Postgres (the same containers as the old
+   `sonarqube/docker-compose.yml`, now running on the EC2 box instead of
+   your laptop)
+3. Waits for SonarQube to report healthy
+4. Resets the default `admin/admin` password to a random one
+5. Creates the `support-desk-platform` project
+6. Generates a CI token
+7. Pushes both the admin password and the token into **SSM Parameter
+   Store** as `SecureString`s — never written to disk in plaintext, never
+   printed to your terminal
+
+## 1. Set your IP and apply
 
 ```bash
-cd sonarqube
-docker compose up -d
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars: set sonarqube_allowed_cidr_blocks to your IP.
+# Find it with: curl -s ifconfig.me   ->  use "x.x.x.x/32"
+
+terraform init
+terraform apply
 ```
 
-Open `http://localhost:9000`, log in with `admin` / `admin`, set a new
-password. This is fine for trying things out; for anything long-lived, put
-it behind HTTPS and point `SONAR_JDBC_URL` at a real Postgres instance (e.g.
-the RDS module already in this repo) instead of the bundled `db` container.
+Boot + bootstrap takes about 3-5 minutes after the instance comes up
+(SonarQube's bundled Elasticsearch is the slow part). Check progress with:
 
-## 2. Create the project + token in SonarQube
+```bash
+aws ssm start-session --target "$(terraform output -raw sonarqube_instance_id)"
+# then, inside the session:
+sudo tail -f /var/log/sonarqube-bootstrap.log
+```
 
-- In SonarQube: **Projects > Create Project > Manually**, project key
-  `support-desk-platform` (matches `sonar-project.properties`).
-- **My Account > Security > Generate Token** — copy it, you won't see it again.
+## 2. Grab the token for GitHub Actions
+
+```bash
+terraform output sonarqube_url
+# -> http://<elastic-ip>:9000  (open it in a browser to confirm it's up)
+
+aws ssm get-parameter \
+  --name "$(terraform output -raw sonarqube_token_ssm_path)" \
+  --with-decryption --query Parameter.Value --output text --region us-east-1
+```
 
 ## 3. Add GitHub Actions secrets
 
@@ -34,29 +66,45 @@ Repo **Settings > Secrets and variables > Actions**:
 
 | Secret | Value |
 |---|---|
-| `SONAR_HOST_URL` | e.g. `http://<your-server>:9000` (must be reachable from the runner) |
-| `SONAR_TOKEN` | the token generated above |
+| `SONAR_HOST_URL` | `terraform output sonarqube_url` |
+| `SONAR_TOKEN` | the value fetched from SSM above |
 
-If your SonarQube instance is only reachable on a private network (e.g.
-inside the VPC this repo's Terraform builds), GitHub-hosted runners won't be
-able to reach it — either expose it via the existing ALB/ingress, or switch
-the `sonarqube` job to a self-hosted runner inside that network.
+If GitHub-hosted runners can't reach the Elastic IP because you locked
+`sonarqube_allowed_cidr_blocks` down to just your own IP, either widen it to
+include GitHub's runner IP ranges, or switch the `sonarqube` CI job to a
+self-hosted runner that can reach it.
 
 ## 4. Run it
 
-Push to `main` or open a PR touching `app/**` — the `sonarqube` job runs
-after `unit-test`/`integration-test` and before any image is built. A
-failing Quality Gate fails that job, which stops `build-push`,
-`update-gitops-manifest`, and `smoke-test` from running at all.
+Push to `main` or open a PR touching `app/**` — the `sonarqube` job in
+`.github/workflows/application.yml` runs the scan and blocks on the Quality
+Gate before anything gets built or deployed.
 
-## Notes
+## Re-running / rebuilding
 
-- Only `auth`, `ticket`, and `assignment` have coverage wired in (they're the
-  only services with a `tests/` dir today). `worker` and `frontend` are
+The instance is stateful (Docker volumes persist SonarQube's data across
+reboots). If you ever need a clean rebuild:
+`terraform taint module.sonarqube.aws_instance.sonarqube && terraform apply`
+— the boot script re-runs from scratch and generates a fresh admin
+password/token.
+
+## Cost note
+
+A `t3.medium` running 24/7 is roughly $30/month. If you only need
+SonarQube during active development, stop it manually when idle:
+`aws ec2 stop-instances --instance-ids "$(terraform output -raw sonarqube_instance_id)"`
+— the Elastic IP and all data persist, and `start-instances` brings it back
+without re-running the bootstrap (it's already configured). Just don't
+`terraform destroy` between sessions, or you'll lose the project history.
+
+## Notes (unchanged from before)
+
+- Only `auth`, `ticket`, and `assignment` have coverage wired in (they're
+  the only services with a `tests/` dir today). `worker` and `frontend` are
   still scanned for code quality/issues, just without coverage numbers.
-- The frontend has no test suite yet, so JS coverage isn't reported. Add one
-  (e.g. `vitest --coverage`) and uncomment `sonar.javascript.lcov.reportPaths`
-  in `sonar-project.properties` to wire it in later.
-- Default Quality Gate ("Sonar way") requires 80% coverage on new code and no
-  new bugs/vulnerabilities/code smells above a threshold — tune this in
+- The frontend has no test suite yet, so JS coverage isn't reported. Add
+  one (e.g. `vitest --coverage`) and uncomment
+  `sonar.javascript.lcov.reportPaths` in `sonar-project.properties` later.
+- Default Quality Gate ("Sonar way") requires 80% coverage on new code and
+  no new bugs/vulnerabilities/code smells above a threshold — tune this in
   SonarQube under **Quality Gates** if it's too strict to start.

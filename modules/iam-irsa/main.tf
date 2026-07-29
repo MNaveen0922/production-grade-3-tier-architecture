@@ -85,7 +85,7 @@ resource "aws_iam_policy" "app_pod" {
         Sid    = "SNSPublishAccess"
         Effect = "Allow"
         Action = "sns:Publish"
-        
+
         Resource = "arn:aws:sns:us-east-1:${data.aws_caller_identity.current.account_id}:${var.project_name}-${var.environment}-alerts"
       }
     ]

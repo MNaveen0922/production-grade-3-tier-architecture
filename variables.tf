@@ -55,3 +55,27 @@ variable "db_multi_az" {
   type        = bool
   default     = false
 }
+
+
+variable "sonarqube_allowed_cidr_blocks" {
+  description = "Who can reach the SonarQube UI (port 9000) - set to your IP as \"x.x.x.x/32\" in terraform.tfvars. Find your IP with: curl -s ifconfig.me. No default on purpose - don't open this to 0.0.0.0/0."
+  type        = list(string)
+}
+
+variable "sonarqube_instance_type" {
+  description = "EC2 instance type for the SonarQube server"
+  type        = string
+  default     = "m7i-flex.large"
+}
+
+variable "sonarqube_enable_elastic_ip" {
+  description = "Static IP for SonarQube so SONAR_HOST_URL doesn't change on instance restart"
+  type        = bool
+  default     = true
+}
+
+variable "sonarqube_key_name" {
+  description = "Optional EC2 key pair for SSH fallback - leave null to use SSM Session Manager only (recommended, no open port 22)"
+  type        = string
+  default     = null
+}

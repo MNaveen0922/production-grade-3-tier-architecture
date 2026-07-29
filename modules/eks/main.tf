@@ -1,6 +1,6 @@
 resource "aws_eks_cluster" "main" {
   name     = "${var.project_name}-${var.environment}-eks"
-  role_arn = var.eks_cluster_role_arn 
+  role_arn = var.eks_cluster_role_arn
   version  = var.cluster_version
 
   vpc_config {
@@ -41,7 +41,7 @@ resource "aws_launch_template" "eks_nodes" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2          
+    http_put_response_hop_limit = 2
   }
 
   tags = {

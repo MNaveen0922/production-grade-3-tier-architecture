@@ -18,7 +18,7 @@ resource "aws_cloudwatch_metric_alarm" "eks_node_cpu" {
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = 300 
+  period              = 300
   statistic           = "Average"
   threshold           = var.ec2_cpu_threshold
 
