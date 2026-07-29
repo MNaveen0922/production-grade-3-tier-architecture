@@ -44,12 +44,12 @@ variable "eks_node_role_arn" {
 
 variable "node_instance_types" {
   type    = list(string)
-  default = ["t3.small"] 
+  default = ["m7i-flex.large"] 
 }
 
 variable "node_desired_size" {
   type    = number
-  default = 4
+  default = 3
 }
 
 variable "node_min_size" {
@@ -59,7 +59,7 @@ variable "node_min_size" {
 
 variable "node_max_size" {
   type    = number
-  default = 6
+  default = 4
 }
 
 variable "oidc_thumbprint_list" {
