@@ -55,3 +55,8 @@ variable "key_name" {
   type        = string
   default     = null
 }
+
+variable "eks_nodes_security_group_id" {
+  description = "Security group ID of the EKS worker nodes - allows the self-hosted CI runner (running as a pod on those nodes) to reach SonarQube privately, without opening port 9000 to the public internet."
+  type        = string
+}

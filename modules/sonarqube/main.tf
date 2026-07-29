@@ -33,6 +33,14 @@ resource "aws_security_group" "sonarqube" {
     cidr_blocks = var.allowed_cidr_blocks
   }
 
+  ingress {
+    description     = "Self-hosted CI runner pods on EKS nodes - lets the sonarqube CI job reach the scanner privately without exposing 9000 to the internet"
+    from_port       = 9000
+    to_port         = 9000
+    protocol        = "tcp"
+    security_groups = [var.eks_nodes_security_group_id]
+  }
+
   dynamic "ingress" {
     for_each = var.key_name != null ? [1] : []
     content {

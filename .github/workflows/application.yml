@@ -141,7 +141,7 @@ jobs:
 
   sonarqube:
     name: SonarQube Scan & Quality Gate
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, eks, sonarqube]
     needs: [unit-test, integration-test]
 
     steps:
