@@ -1,0 +1,58 @@
+# Self-hosted GitHub Actions runner, running as a pod on your EKS worker
+# nodes. Its whole purpose is to run the "sonarqube" CI job from *inside*
+# the VPC, so it can reach the SonarQube EC2 instance over its private IP
+# — the instance's port 9000 never needs to be exposed to the public
+# internet for CI to work.
+#
+# Secret setup (do this once, before applying this file):
+#   kubectl create namespace github-runners
+#   kubectl create secret generic github-runner-pat \
+#     --namespace github-runners \
+#     --from-literal=ACCESS_TOKEN=<your-github-PAT-with-repo-scope>
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner-sonarqube
+  namespace: github-runners
+  labels:
+    app: github-runner-sonarqube
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner-sonarqube
+  template:
+    metadata:
+      labels:
+        app: github-runner-sonarqube
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: runner
+          image: myoung34/github-runner:latest
+          env:
+            - name: REPO_URL
+              value: "https://github.com/MNaveen0922/production-grade-3-tier-architecture"
+            - name: RUNNER_NAME_PREFIX
+              value: "eks-sonarqube-runner"
+            - name: LABELS
+              value: "self-hosted,eks,sonarqube"
+            - name: RUNNER_SCOPE
+              value: "repo"
+            - name: EPHEMERAL
+              value: "true"
+            - name: DISABLE_AUTO_UPDATE
+              value: "true"
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-pat
+                  key: ACCESS_TOKEN
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
