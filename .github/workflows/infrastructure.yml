@@ -36,6 +36,7 @@ env:
   EKS_CLUSTER:                 ${{ secrets.EKS_CLUSTER }}
   TF_VAR_assets_bucket_suffix: ${{ secrets.TF_VAR_ASSETS_BUCKET_SUFFIX }}
   TF_VAR_alert_email:          ${{ secrets.TF_VAR_ALERT_EMAIL }}
+  TF_VAR_sonarqube_allowed_cidr_blocks: ${{ secrets.TF_VAR_SONARQUBE_ALLOWED_CIDR_BLOCKS }}
 
 jobs:
   iac-scan:
