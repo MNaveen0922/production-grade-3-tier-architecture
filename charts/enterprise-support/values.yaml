@@ -80,7 +80,7 @@ worker:
     limits: {cpu: 300m, memory: 256Mi}
 ingress:
   enabled: true
-  albSecurityGroupId: "sg-0c9ebf510cea31192"
+  albSecurityGroupId: "sg-02f19088887924b54"
 metrics:
   enabled: true
   path: /metrics
